@@ -272,4 +272,3 @@ void loop()
     sendOdometry();
 }
 
-wait i have not removed the serial statements because it will only be printed once that too at startup and the script will automatically ignore these 
