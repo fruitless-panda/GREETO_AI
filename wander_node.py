@@ -45,41 +45,87 @@ class WanderNode(Node):
 
         self.latest_scan = msg
 
-    def control_loop(self):
+def control_loop(self):
 
-        if self.latest_scan is None:
-            return
+    if self.latest_scan is None:
+        return
 
-        ranges = self.latest_scan.ranges
+    ranges = self.latest_scan.ranges
 
-        # Front 40 degrees (approximately)
-        front = ranges[0:20] + ranges[-20:]
+    # ----------------------------
+    # Define sectors
+    # ----------------------------
 
-        valid = [
-            r for r in front
-            if r > 0.10 and r < 10.0
-        ]
+    front = ranges[0:20] + ranges[-20:]
+    left  = ranges[40:90]
+    right = ranges[-90:-40]
 
-        if len(valid):
-            closest = min(valid)
-        else:
-            closest = 999.0
+    def average_distance(data):
+
+        valid = [r for r in data if 0.10 < r < 10.0]
+
+        if not valid:
+            return 0.0
+
+        return sum(valid) / len(valid)
+
+        front_dist = average_distance(front)
+        left_dist  = average_distance(left)
+        right_dist = average_distance(right)
 
         cmd = Twist()
 
-        if closest < self.safe_distance:
+    # ----------------------------
+    # State Machine
+    # ----------------------------
 
-            self.get_logger().info(
-                f"Obstacle: {closest:.2f} m"
-            )
+        if self.turning:
 
-            cmd.linear.x = 0.0
-            cmd.angular.z = 0.5
+            # Continue turning until front is clear
+
+            if front_dist > self.safe_distance:
+
+                self.turning = False
+
+                self.get_logger().info("Path Clear")
+
+                cmd.linear.x = 0.2
+                cmd.angular.z = 0.0
+
+            else:
+
+                cmd.linear.x = 0.0
+
+                if self.turn_direction == "LEFT":
+                    cmd.angular.z = 0.5
+                else:
+                    cmd.angular.z = -0.5
 
         else:
 
-            cmd.linear.x = 0.2
-            cmd.angular.z = 0.0
+            # Normal forward driving
+
+            if front_dist > self.safe_distance:
+
+                cmd.linear.x = 0.2
+                cmd.angular.z = 0.0
+
+            else:
+
+                self.turning = True
+
+                # Choose side with more free space
+
+                if left_dist > right_dist:
+                    self.turn_direction = "LEFT"
+                    cmd.angular.z = 0.5
+                    self.get_logger().info("Turning Left")
+                else:
+                    self.turn_direction = "RIGHT"
+                    cmd.angular.z = -0.5
+                    self.get_logger().info("Turning Right")
+
+                cmd.linear.x = 0.0
 
         self.cmd_vel_pub.publish(cmd)
 
