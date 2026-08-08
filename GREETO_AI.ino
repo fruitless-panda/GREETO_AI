@@ -30,6 +30,7 @@
 #define DIR_M1 4
 #define DIR_M2 23
 
+
 // =============================
 // Configuration Constants
 // =============================
@@ -270,5 +271,6 @@ void loop()
     
     processUART();
     sendOdometry();
+}
 }
 

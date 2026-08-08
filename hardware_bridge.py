@@ -57,9 +57,9 @@ class HardwareBridge(Node):
             command = 'S'
 
         if command != self.last_command:
+            self.get_logger().info(f"Sent: {command}")
             self.serial_port.write(command.encode())
             self.last_command = command
-            self.get_logger().info(f"Sent: {command}")
     def read_serial(self):
 
         while self.serial_port.in_waiting > 0:
