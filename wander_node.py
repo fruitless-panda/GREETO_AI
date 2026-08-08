@@ -40,27 +40,14 @@ class WanderNode(Node):
         )
 
         self.get_logger().info("Wander Node Started")
+        self.turning = False
+        self.turn_direction = "LEFT"
 
     def scan_callback(self, msg):
 
         self.latest_scan = msg
 
-def control_loop(self):
-
-    if self.latest_scan is None:
-        return
-
-    ranges = self.latest_scan.ranges
-
-    # ----------------------------
-    # Define sectors
-    # ----------------------------
-
-    front = ranges[0:20] + ranges[-20:]
-    left  = ranges[40:90]
-    right = ranges[-90:-40]
-
-    def average_distance(data):
+    def average_distance(self, data):
 
         valid = [r for r in data if 0.10 < r < 10.0]
 
@@ -69,19 +56,32 @@ def control_loop(self):
 
         return sum(valid) / len(valid)
 
-        front_dist = average_distance(front)
-        left_dist  = average_distance(left)
-        right_dist = average_distance(right)
+    def control_loop(self):
+
+        if self.latest_scan is None:
+            return
+
+        ranges = self.latest_scan.ranges
+
+        # ----------------------------
+        # Define sectors
+        # ----------------------------
+
+        front = ranges[0:20] + ranges[-20:]
+        left  = ranges[40:90]
+        right = ranges[-90:-40]
+
+        front_dist = self.average_distance(front)
+        left_dist  = self.average_distance(left)
+        right_dist = self.average_distance(right)
 
         cmd = Twist()
 
-    # ----------------------------
-    # State Machine
-    # ----------------------------
+        # ----------------------------
+        # Turning Mode
+        # ----------------------------
 
         if self.turning:
-
-            # Continue turning until front is clear
 
             if front_dist > self.safe_distance:
 
@@ -94,16 +94,19 @@ def control_loop(self):
 
             else:
 
-                cmd.linear.x = 0.0
+                # Keep turning until front becomes clear
+                cmd.linear.x = 0.2
 
                 if self.turn_direction == "LEFT":
                     cmd.angular.z = 0.5
                 else:
                     cmd.angular.z = -0.5
 
-        else:
+        # ----------------------------
+        # Normal Driving
+        # ----------------------------
 
-            # Normal forward driving
+        else:
 
             if front_dist > self.safe_distance:
 
@@ -114,18 +117,25 @@ def control_loop(self):
 
                 self.turning = True
 
-                # Choose side with more free space
-
                 if left_dist > right_dist:
-                    self.turn_direction = "LEFT"
-                    cmd.angular.z = 0.5
-                    self.get_logger().info("Turning Left")
-                else:
-                    self.turn_direction = "RIGHT"
-                    cmd.angular.z = -0.5
-                    self.get_logger().info("Turning Right")
 
-                cmd.linear.x = 0.0
+                    self.turn_direction = "LEFT"
+                    self.get_logger().info(
+                        f"Obstacle {front_dist:.2f} m -> Turning LEFT"
+                    )
+
+                    cmd.linear.x = 0.2
+                    cmd.angular.z = 0.5
+
+                else:
+
+                    self.turn_direction = "RIGHT"
+                    self.get_logger().info(
+                        f"Obstacle {front_dist:.2f} m -> Turning RIGHT"
+                    )
+
+                    cmd.linear.x = 0.2
+                    cmd.angular.z = -0.5
 
         self.cmd_vel_pub.publish(cmd)
 
