@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import math
 import rclpy
 from rclpy.node import Node
 
@@ -49,12 +49,37 @@ class WanderNode(Node):
 
     def average_distance(self, data):
 
-        valid = [r for r in data if 0.10 < r < 10.0]
+        valid = [
+            r for r in data
+            if math.isfinite(r) and 0.10 < r < 10.0
+        ]
 
         if not valid:
             return 0.0
 
         return sum(valid) / len(valid)
+    def is_clear(self, data, clearance=0.5):
+
+        valid = [
+            r for r in data
+            if math.isfinite(r) and 0.10 < r < 10.0
+        ]
+
+        if not valid:
+            return False
+
+        return min(valid) >= clearance
+    def minimum_distance(self, data):
+
+        valid = [
+            r for r in data
+            if math.isfinite(r) and 0.10 < r < 10.0
+        ]
+
+        if not valid:
+            return 0.0
+
+        return min(valid)
 
     def control_loop(self):
 
@@ -63,78 +88,125 @@ class WanderNode(Node):
 
         ranges = self.latest_scan.ranges
 
-        # ----------------------------
-        # Define sectors
-        # ----------------------------
+        # -------------------------------------------------
+        # Front semicircle
+        #
+        # 270° -> 360° -> 0° -> 90°
+        #
+        # Left side  = 270° -> 360°
+        # Right side =   0° -> 90°
+        # -------------------------------------------------
 
-        front = ranges[0:20] + ranges[-20:]
-        left  = ranges[40:90]
-        right = ranges[-90:-40]
+        left_side = ranges[377:503]
+        right_side = ranges[0:125]
 
-        front_dist = self.average_distance(front)
-        left_dist  = self.average_distance(left)
-        right_dist = self.average_distance(right)
+        front_semicircle = left_side + right_side
+
+        # -------------------------------------------------
+        # Check entire front semicircle
+        # -------------------------------------------------
+
+        semicircle_clear = self.is_clear(
+            front_semicircle,
+            0.5
+        )
+
+        # -------------------------------------------------
+        # Calculate average clearance
+        # -------------------------------------------------
+
+        left_clearance = self.average_distance(
+            left_side
+        )
+
+        right_clearance = self.average_distance(
+            right_side
+        )
 
         cmd = Twist()
 
-        # ----------------------------
-        # Turning Mode
-        # ----------------------------
+        # -------------------------------------------------
+        # TURNING
+        # -------------------------------------------------
 
         if self.turning:
 
-            if front_dist > self.safe_distance:
+            # NEVER drive forward until the entire
+            # front semicircle is clear.
+
+            if semicircle_clear:
 
                 self.turning = False
 
-                self.get_logger().info("Path Clear")
+                self.get_logger().info(
+                    "Front semicircle clear -> FORWARD"
+                )
 
                 cmd.linear.x = 0.2
                 cmd.angular.z = 0.0
 
             else:
 
-                # Keep turning until front becomes clear
-                cmd.linear.x = 0.2
+                # Obstacle still present.
+                # Keep turning in the selected direction.
+
+                cmd.linear.x = 0.0
 
                 if self.turn_direction == "LEFT":
+
                     cmd.angular.z = 0.5
+
                 else:
+
                     cmd.angular.z = -0.5
 
-        # ----------------------------
-        # Normal Driving
-        # ----------------------------
+        # -------------------------------------------------
+        # FORWARD
+        # -------------------------------------------------
 
         else:
 
-            if front_dist > self.safe_distance:
+            if semicircle_clear:
+
+                # Entire 180° front area is clear.
 
                 cmd.linear.x = 0.2
                 cmd.angular.z = 0.0
 
             else:
 
+                # Something is inside the 50 cm
+                # safety boundary.
+
                 self.turning = True
 
-                if left_dist > right_dist:
+                # Choose the side with the larger
+                # average clearance.
+
+                if left_clearance > right_clearance:
 
                     self.turn_direction = "LEFT"
+
                     self.get_logger().info(
-                        f"Obstacle {front_dist:.2f} m -> Turning LEFT"
+                        f"OBSTACLE -> LEFT "
+                        f"L={left_clearance:.2f} "
+                        f"R={right_clearance:.2f}"
                     )
 
-                    cmd.linear.x = 0.2
+                    cmd.linear.x = 0.0
                     cmd.angular.z = 0.5
 
                 else:
 
                     self.turn_direction = "RIGHT"
+
                     self.get_logger().info(
-                        f"Obstacle {front_dist:.2f} m -> Turning RIGHT"
+                        f"OBSTACLE -> RIGHT "
+                        f"L={left_clearance:.2f} "
+                        f"R={right_clearance:.2f}"
                     )
 
-                    cmd.linear.x = 0.2
+                    cmd.linear.x = 0.0
                     cmd.angular.z = -0.5
 
         self.cmd_vel_pub.publish(cmd)
